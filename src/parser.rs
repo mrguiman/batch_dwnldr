@@ -35,8 +35,8 @@ impl IntegerPattern {
     }
 }
 pub fn parse_patterns(url: &str) -> Vec<IntegerPattern> {
-    let integer_pattern_regex: Regex = Regex::new(r"\[[0-9]+:[0-9]+\]").unwrap();
-    integer_pattern_regex
+    Regex::new(r"\[[0-9]+:[0-9]+\]")
+        .unwrap()
         .find(url)
         .into_iter()
         .map(|needle| IntegerPattern::new(url, needle.start(), needle.end()))

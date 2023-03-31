@@ -35,6 +35,7 @@ async fn main() {
             .collect();
         let mut buffered_futures = stream::iter(futures).buffer_unordered(100);
         while let Some(res) = buffered_futures.next().await {
+            // TODO Better logs (with verbose mode ?)
             println!("{:?}", res);
         }
     }
@@ -44,6 +45,7 @@ async fn download_content(
     url: String,
     client: &reqwest::Client,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    // TODO find a way to fix the file naming before it hurts someone
     let file_name = &url.split('/').last().unwrap();
     let res = client.get(&url).send().await?;
     let mut file = File::create(file_name).await?;
