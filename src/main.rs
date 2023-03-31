@@ -15,16 +15,17 @@ struct Args {
 }
 fn main() -> Result<(), Error> {
     let args = Args::parse();
-    //    for x in 1..=34 {
-    //    }
     let patterns = parse_patterns(&args.url);
 
     // TODO figure out what to do with multiple patterns
     if let Some(pattern) = patterns.get(0) {
         for x in pattern.start_int..=pattern.end_int {
             let mut download_url = pattern.url.clone();
-            // TODO apply pad
-            download_url.replace_range(pattern.start_index..=pattern.end_index, &x.to_string());
+            download_url.replace_range(
+                pattern.start_index..pattern.end_index,
+                &format!("{:0pad$}", x, pad = pattern.pad),
+            );
+
             if let Err(e) = download_content(&download_url) {
                 println!("Error while downloading file at {}: {}", download_url, e);
             }
@@ -48,7 +49,7 @@ impl IntegerPattern {
                 return i;
             }
         }
-        return integer_str.len() - 1;
+        return integer_str.len();
     }
     fn new(raw_pattern: &str, start_index: usize, end_index: usize) -> Self {
         let (start_str, end_str) = raw_pattern[start_index..end_index]
@@ -56,7 +57,6 @@ impl IntegerPattern {
             .split_once(":")
             .expect("Invalid pattern format");
 
-        dbg!(&end_str, &start_str);
         IntegerPattern {
             url: raw_pattern.to_string(),
             start_index,
