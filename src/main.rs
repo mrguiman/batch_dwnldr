@@ -1,7 +1,9 @@
 use clap::Parser;
-use regex::Regex;
-use std::fs::File;
-use std::io::{self, Error};
+use futures::stream::{self, StreamExt};
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+
+mod parser;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -13,74 +15,38 @@ struct Args {
     #[clap(verbatim_doc_comment)]
     url: String,
 }
-fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
-    let patterns = parse_patterns(&args.url);
+    let patterns = parser::parse_patterns(&args.url);
 
     // TODO figure out what to do with multiple patterns
     if let Some(pattern) = patterns.get(0) {
-        for x in pattern.start_int..=pattern.end_int {
-            let mut download_url = pattern.url.clone();
-            download_url.replace_range(
-                pattern.start_index..pattern.end_index,
-                &format!("{:0pad$}", x, pad = pattern.pad),
-            );
-
-            if let Err(e) = download_content(&download_url) {
-                println!("Error while downloading file at {}: {}", download_url, e);
-            }
+        let request_client = reqwest::Client::new();
+        let futures: Vec<_> = (pattern.start_int..=pattern.end_int)
+            .map(|x| {
+                let mut download_url = pattern.url.clone();
+                download_url.replace_range(
+                    pattern.start_index..pattern.end_index,
+                    &format!("{:0pad$}", x, pad = pattern.pad),
+                );
+                download_content(download_url, &request_client)
+            })
+            .collect();
+        let mut buffered_futures = stream::iter(futures).buffer_unordered(100);
+        while let Some(res) = buffered_futures.next().await {
+            println!("{:?}", res);
         }
     }
-    Ok(())
 }
-#[derive(Debug)]
-struct IntegerPattern {
+
+async fn download_content(
     url: String,
-    start_index: usize,
-    end_index: usize,
-    start_int: i32,
-    end_int: i32,
-    pad: usize,
-}
-impl IntegerPattern {
-    fn count_pad(integer_str: &str) -> usize {
-        for (i, char) in integer_str.chars().enumerate() {
-            if char != '0' {
-                return i;
-            }
-        }
-        return integer_str.len();
-    }
-    fn new(raw_pattern: &str, start_index: usize, end_index: usize) -> Self {
-        let (start_str, end_str) = raw_pattern[start_index..end_index]
-            .trim_matches(['[', ']'].as_slice())
-            .split_once(":")
-            .expect("Invalid pattern format");
-
-        IntegerPattern {
-            url: raw_pattern.to_string(),
-            start_index,
-            end_index,
-            start_int: start_str.parse::<i32>().unwrap_or(0),
-            end_int: end_str.parse::<i32>().unwrap_or(0),
-            pad: IntegerPattern::count_pad(start_str),
-        }
-    }
-}
-fn parse_patterns(url: &str) -> Vec<IntegerPattern> {
-    let integer_pattern_regex: Regex = Regex::new(r"\[[0-9]+:[0-9]+\]").unwrap();
-    integer_pattern_regex
-        .find(url)
-        .into_iter()
-        .map(|needle| IntegerPattern::new(url, needle.start(), needle.end()))
-        .collect()
-}
-
-fn download_content(url: &str) -> Result<(), Error> {
-    let file_name = url.split('/').last().unwrap();
-    let mut file_buffer = File::create(file_name)?;
-    let mut response = reqwest::blocking::get(url).unwrap();
-    assert!(response.status().is_success());
-    io::copy(&mut response, &mut file_buffer).expect("Unable to copy data");
-    Ok(())
+    client: &reqwest::Client,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let file_name = &url.split('/').last().unwrap();
+    let res = client.get(&url).send().await?;
+    let mut file = File::create(file_name).await?;
+    file.write_all(&res.bytes().await?).await?;
+    Ok(format!("Wrote {}", file_name))
 }
